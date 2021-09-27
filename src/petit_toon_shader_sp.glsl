@@ -8,8 +8,12 @@ import lib-vectors.glsl
 import lib-utils.glsl
 import lib-emissive.glsl
 
+
 //: param auto main_light
 uniform vec4 uniform_main_light;
+
+//: param auto world_camera_direction
+uniform vec3 uniform_world_camera_direction;
 
 //: param auto camera_view_matrix
 uniform mat4 uniform_camera_view_matrix;
@@ -81,7 +85,7 @@ uniform bool use_user4_channel;
 // High Light Settings
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-//: param custom { "default": true, "label": "Use High Light","group": "High Light Settings"}
+//: param custom { "default": false, "label": "Use High Light","group": "High Light Settings"}
 uniform bool use_high_light;
 
 //: param custom { "default": [1.0, 1.0, 1.0],"label": "High Light Color", "widget": "color","group": "High Light Settings"}
@@ -97,7 +101,7 @@ uniform float high_light_feather;
 // Rim Light Settings
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-//: param custom { "default": true, "label": "Use Rim Light","group": "Rim Light Settings"}
+//: param custom { "default": false, "label": "Use Rim Light","group": "Rim Light Settings"}
 uniform bool use_rim_light;
 
 //: param custom { "default": [1.0, 1.0, 1.0],"label": "Rim Light Color", "widget": "color","group": "Rim Light Settings"}
@@ -116,16 +120,19 @@ uniform float rim_light_feather;
 //: param custom { "default": false, "label": "Use Sphere Mapping","group": "Sphere Mapping (Matcap) Settings"}
 uniform bool use_sphere_map;
 
-//: param custom { "default": "texture_name", "label": "Sphere Mapping Texture", "usage": "texture" ,"group": "Sphere Mapping (Matcap) Settings"}
+//: param custom { "default": true, "label": "Sphere Mapping Texture is sRGB","group": "Sphere Mapping (Matcap) Settings"}
+uniform bool sphere_map_is_sRGB;
+
+//: param custom { "default": "texture_name", "label": "Sphere Mapping Texture", "usage": "Texture" ,"group": "Sphere Mapping (Matcap) Settings"}
 uniform sampler2D sphere_map_tex;
 
 //: param custom {
-//:   "default": 0,
+//:   "default": 10,
 //:   "label": "Blend Mode",
 //:   "widget": "combobox",
 //:   "values": {
-//:     "Additive": 0,
-//:     "Multiply": 1,
+//:     "LinearDodge(Add)": 10,
+//:     "Multiply": 4,
 //:     "Normal": 2
 //:   },
 //:   "group": "Sphere Mapping (Matcap) Settings"
@@ -159,55 +166,59 @@ void shade(V2F inputs)
   vec3 N = vectors.normal;
   vec3 light_dir = normalize(uniform_main_light.xyz);
   vec3 view_dir = getEyeVec(camera_dir);
+  // vec3 view_dir = getEyeVec(uniform_world_camera_direction);
   vec3 half_dir = normalize(light_dir + view_dir);
 
-  // Shading
-  float half_lambert = (0.5 * dot(N, light_dir)) + 0.5;
-
-  float first_shade = clamp(remap(half_lambert,first_color_step,first_color_step+first_color_feather),0.0,1.0);
-  float second_shade = clamp(remap(half_lambert,second_color_step,second_color_step+second_color_feather),0.0,1.0);
-  second_shade = clamp(1-first_shade-second_shade,0.0,1.0);
-  first_shade = clamp(1-first_shade,0.0,1.0);
-  
-  vec3 first_shade_position_map = sRGB2linear(getUserColor(first_shade_position_tex,inputs.sparse_coord));
-  vec3 second_shade_position_map = sRGB2linear(getUserColor(second_shade_position_tex, inputs.sparse_coord));
-
   vec3 basecolor_map = getBaseColor(basecolor_tex, inputs.sparse_coord);
-  vec3 first_shade_color_map = sRGB2linear(getUserColor(first_shade_tex,inputs.sparse_coord));
-  vec3 second_shade_color_map = sRGB2linear(getUserColor(second_shade_tex, inputs.sparse_coord));
+  vec3 color = basecolor_map;
 
-  vec3 color = basecolor_map * basic_color;
-  vec3 first_color = use_user1_channel ? first_shade_color_map * first_shade_color : basecolor_map * first_shade_color;
-  vec3 second_color = use_user2_channel ? second_shade_color_map * second_shade_color : basecolor_map * second_shade_color;
+  // Shading
+  if (use_shading){
+    float half_lambert = (0.5 * dot(N, light_dir)) + 0.5;
 
-  first_shade_position_map = use_user3_channel ? mix(1-first_shade_position_map,white,first_shade) : vec3(first_shade,first_shade,first_shade);
-  second_shade_position_map = use_user4_channel ? mix(1-second_shade_position_map,white,second_shade) : vec3(second_shade,second_shade,second_shade);
+    float first_shade = clamp(remap(half_lambert,first_color_step,first_color_step+first_color_feather),0.0,1.0);
+    float second_shade = clamp(remap(half_lambert,second_color_step,second_color_step+second_color_feather),0.0,1.0);
+    second_shade = clamp(1-first_shade-second_shade,0.0,1.0);
+    first_shade = clamp(1-first_shade,0.0,1.0);
+    
+    vec3 first_shade_position_map = sRGB2linear(getUserColor(first_shade_position_tex,inputs.sparse_coord));
+    vec3 second_shade_position_map = sRGB2linear(getUserColor(second_shade_position_tex, inputs.sparse_coord));
 
-  vec3 shade = mix(color,first_color,first_shade_position_map);
-  shade = mix(shade,second_color,second_shade_position_map);
+    vec3 first_shade_color_map = sRGB2linear(getUserColor(first_shade_tex,inputs.sparse_coord));
+    vec3 second_shade_color_map = sRGB2linear(getUserColor(second_shade_tex, inputs.sparse_coord));
 
-  color = use_shading ? shade : basecolor_map;
+    vec3 first_color = use_user1_channel ? first_shade_color_map * first_shade_color : basecolor_map * first_shade_color;
+    vec3 second_color = use_user2_channel ? second_shade_color_map * second_shade_color : basecolor_map * second_shade_color;
+
+    first_shade_position_map = use_user3_channel ? mix(1-first_shade_position_map,white,first_shade) : vec3(first_shade,first_shade,first_shade);
+    second_shade_position_map = use_user4_channel ? mix(1-second_shade_position_map,white,second_shade) : vec3(second_shade,second_shade,second_shade);
+
+    color = basecolor_map * basic_color;
+    vec3 shade = mix(color,first_color,first_shade_position_map);
+    color = mix(shade,second_color,second_shade_position_map);
+  }
 
   // High Light
-  float high_light = 1.0 - ((0.5 * dot(N, half_dir)) + 0.5);
-  high_light = clamp(remap(high_light,pow(high_light_step,5),pow(high_light_step,5)+(high_light_step*high_light_feather)),0.0,1.0);
-  vec3 high = use_high_light ? high_light_color * clamp(1.0 - high_light,0.0,1.0) : black;
+  float high_light_map = 1.0 - ((0.5 * dot(N, half_dir)) + 0.5);
+  high_light_map = clamp(remap(high_light_map,pow(high_light_step,5),pow(high_light_step,5)+(high_light_step*high_light_feather)),0.0,1.0);
+  vec3 high_light = use_high_light ? high_light_color * clamp(1.0 - high_light_map,0.0,1.0) : black;
 
   // Rim Light
-  float rim_light = dot(N, view_dir);
-  rim_light = clamp(remap(rim_light,rim_light_step,rim_light_step+rim_light_feather),0.0,1.0);
-  vec3 rim = use_rim_light ? rim_light_color *  clamp(1.0 - rim_light,0.0,1.0) : black;
+  float rim_light_map = dot(N, view_dir);
+  rim_light_map = clamp(remap(rim_light_map,rim_light_step,rim_light_step+rim_light_feather),0.0,1.0);
+  vec3 rim_light = use_rim_light ? rim_light_color *  clamp(1.0 - rim_light_map,0.0,1.0) : black;
 
   // Sphere Mapping
-  vec4 view_normal_matrix = normalize((uniform_camera_view_matrix * vec4(N, 0.0)));
-  vec2 sphere_map_tex_coord = view_normal_matrix.xy * 0.5 + 0.5;
-  vec4 sphere_map_color = texture(sphere_map_tex, sphere_map_tex_coord);
-  vec3 sphere_map = sphere_map_blend_mode == 0 ? color + sphere_map_color.xyz
-  : sphere_map_blend_mode == 1 ? color * sphere_map_color.xyz
-  : sphere_map_blend_mode == 2 ? sphere_map_color.xyz
-  : color;
-
-  color = use_sphere_map ? sphere_map : color;
+  if (use_sphere_map){
+    vec4 view_normal_matrix = normalize((uniform_camera_view_matrix * vec4(N, 0.0)));
+    vec2 sphere_map_tex_coord = view_normal_matrix.xy * 0.5 + 0.5;
+    vec4 sphere_map_color = sphere_map_is_sRGB ? sRGB2linear(texture(sphere_map_tex, sphere_map_tex_coord)) : texture(sphere_map_tex, sphere_map_tex_coord);
+    vec3 sphere_map = sphere_map_blend_mode == BlendingMode_LinearDodge ? color + sphere_map_color.xyz
+    : sphere_map_blend_mode == BlendingMode_Multiply ? color * sphere_map_color.xyz
+    : sphere_map_blend_mode == BlendingMode_Normal ? sphere_map_color.xyz
+    : color;
+    color = sphere_map;
+  }
 
   // 両面を描画する
   //: state cull_face off
@@ -218,7 +229,8 @@ void shade(V2F inputs)
   vec3 shadow = vec3(getShadowFactor());
   
   float alpha = getOpacity(opacity_tex, inputs.sparse_coord);
+
   alphaOutput(alpha);
-  diffuseShadingOutput((color+high+rim)*shadow);
+  diffuseShadingOutput((color+high_light+rim_light)*shadow);
   emissiveColorOutput(pbrComputeEmissive(emissive_tex, inputs.sparse_coord));
 }
